@@ -23,8 +23,8 @@ api/cruds/task.py
 
 
     async def create_task(
-        db: AsyncSession, **task_create: task_schema.TaskCreate**
-    ) -> **task_model.Task**:
+        db: AsyncSession, task_create: task_schema.TaskCreate
+    ) -> task_model.Task:
 
 
       task = task_model.Task(**task_create.dict()
