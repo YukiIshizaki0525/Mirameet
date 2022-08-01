@@ -32,8 +32,9 @@ api/cruds/task.py
       await db.commit()
       await db.refresh(task)
       return task
-    
+      
 ――――――――――――――――――――――――――
+
 **コードの説明**
 **処理フロー**
 やっていることの大まかな流れを箇条書きで書き下してみます。
@@ -43,5 +44,19 @@ api/cruds/task.py
 2. これをDBモデルである **task_model.Tas**k に変換する
 3. DBにコミットする
 4. DB上のデータを元に、Taskインスタンス task を更新する（この場合、作成したレコードの id を取得する）
-5. 作成したDBモデルを返却する![image](https://user-images.githubusercontent.com/60068515/182012280-78c0e08a-d6fc-430a-936f-a24f48e351e2.png)
+5. 作成したDBモデルを返却する
+
+
+[talk]
+これが大まかな流れです。ここで注目したいのは、関数定義が async def となっていること、
+それから db.commit() と db.refresh(task) に await が付いていることです。
+以下、説明をしていきます。
+
+
+async def は関数が非同期処理を行うことができる、 「コルーチン関数」であるということを表します。
+
+
+
+### コルーチンとは
+
 
