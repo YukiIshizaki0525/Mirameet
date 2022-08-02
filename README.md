@@ -36,6 +36,7 @@ api/cruds/task.py
 ――――――――――――――――――――――――――
 
 **コードの説明**
+
 **処理フロー**
 やっていることの大まかな流れを箇条書きで書き下してみます。
 
@@ -100,7 +101,19 @@ api/routers/task.py
         return await task_crud.create_task(db, task_body)
 ――――――――――――――――――――――――――
 
+**コードの説明**
 
+先程の **create_task()** と同様、ルーターのパスオペレーション関数もコルーチンとして定義されています。
+ですので、**create_task()** からの返却値も **await** を使って返却します。
+
+
+また、**db: AsyncSession = Depends(get_db)** にも注目してみましょう。
+Depends は引数に関数を取り、 DI（Dependency Injection、依存性注入） を行う機構です。
+DB接続部分にDIを利用することにより、ビジネスロジックとDBが密結合になることを防ぐことが利点として挙げられます。
+例えば、テストの時に、DBインスタンスの中身を外部から上書きできるので、**get_db** と異なるテスト用の接続先を置換するといったことが、
+コードに触れることなく、可能になります。
+
+[参考][PythonでのDependency Injection 依存性の注入 - Qiita](https://qiita.com/mkgask/items/d984f7f4d94cc39d8e3c)
 
 
 
