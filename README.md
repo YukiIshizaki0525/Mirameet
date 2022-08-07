@@ -117,3 +117,109 @@ DB接続部分にDIを利用することにより、ビジネスロジックとD
 
 
 
+[talk] 
+
+プログラミングの文脈で言われている「依存」とは、特定のクラスの内部で使用される値が、 
+外部の何か（変数、定数、クラスのインスタンスなど）に依存している状態を指します。 
+ここでは、依存性注入の詳細な説明は省きますが、簡潔にいうと、その依存している先を外部から注入出来るようにすることで、 
+依存していたクラス互いのクラスの結合度が下がり、より汎用性の高いクラスにすることができるメリットがあります。 
+
+
+
+
+**DBモデルとレスポンススキーマの変換**
+
+
+リクエストボディの **task_schema.TaskCreate** と、レスポンスモデルの **task_schema.TaskCreateResponse** については、  
+
+リクエストに対して id だけを付与して返却する必要があります。 
+ 
+
+1-3. 以下のファイルを編集して、保存をします。 
+
+api/schemas/task.py 
+
+―――――――――――――――――――――――――― 
+
+    class TaskBase(BaseModel): 
+        title: Optional[str] = Field(None, example=“買い物に行く") 
+
+
+    class TaskCreate(TaskBase): 
+        pass 
+
+
+    class TaskCreateResponse(TaskCreate): 
+        id: int 
+
+
+
+     class Config: 
+        orm_mode = True 
+
+―――――――――――――――――――――――――― 
+
+**コードの説明** 
+
+**orm_mode = True** は、このレスポンススキーマ TaskCreateResponse が、暗黙的にORMを受け取り、レスポンススキーマに変換することを意味します。 
+
+
+### 2. R: Read
+
+前項でTask の作成が可能になったので、次に Task をリストで受け取る Read エンドポイントを作成しましょう。 
+
+
+ToDoアプリでは Task に対して Done モデルが定義されていますが、これらを別々に Read で取得するのは面倒な為、 
+これらをjoinして、ToDoタスクにDoneフラグが付加された状態のリストを取得できるエンドポイントとしましょう。 
+
+2-1. 以下のファイルを編集して、保存をします。 
+
+
+api/cruds/task.py 
+
+―――――――――――――――――――――――――― 
+
+    async def get_tasks_with_done(db: AsyncSession) -> List[Tuple[int, str, bool]]: 
+        result: Result = await ( 
+            db.execute( 
+                select( 
+                    task_model.Task.id, 
+                    task_model.Task.title, 
+                    task_model.Done.id.isnot(None).label("done"), 
+                ).outerjoin(task_model.Done) 
+            ) 
+        ) 
+
+        return result.all() 
+
+―――――――――――――――――――――――――― 
+
+**コードの説明** 
+
+get_tasks_with_done() も create_task() と同様コルーチンなので、 async def で定義され、 await を使って Result を取得します。 
+コルーチンの返却値として result.all() コールによって、初めてすべてのDBレコードを取得します。 
+select() で必要なフィールドを指定し、 .outerjoin() によってメインのDBモデルに対してjoinしたいモデルを指定しています。 
+
+
+
+また、 dones テーブルは tasks テーブルと同じIDを持ち、ToDoタスクが完了しているときだけレコードが存在していると説明しました。 
+
+**task_model.Done.id.isnot(None).label("done")** によって、 Done.id が存在するときは **done=True** とし、 
+
+存在しないときは done=False として、joinしたレコードを返却します。 
+
+ 
+
+上記のCRUDs定義を利用するルーターは、以下のコードを追記します。 
+
+構造はCreateとのものと同等です。 
+
+ 
+
+2-2. 以下のファイルを編集して、保存をします。 
+
+ 
+
+api/routers/task.py 
+
+―――――――――――――――――――――――――― 
