@@ -1,4 +1,4 @@
-### 【6】 DB操作とAPIの繋げ込み
+## 【6】 DB操作とAPIの繋げ込み
 [talk]
 DB接続の準備と、TODOアプリのためのDBモデルの準備を行いました。
 このセクションから、DBに接続するRead/Writeの処理と、これをAPIに繋げて動作を確認してみましょう。
@@ -223,3 +223,273 @@ select() で必要なフィールドを指定し、 .outerjoin() によってメ
 api/routers/task.py 
 
 ―――――――――――――――――――――――――― 
+
+    #追記 
+    @router.get("/tasks", response_model=List[task_schema.Task]) 
+    async def list_tasks(db: AsyncSession = Depends(get_db)): 
+        return await task_crud.get_tasks_with_done(db) 
+
+――――――――――――――――――――――――――
+
+### 3. U: Update 
+
+Update も Create とほぼ同等ですが、最初にリクエストしているのが存在している Task に対してなのかをチェックし、 
+存在した場合は更新、存在しない場合は404エラーを返却するAPIにします。 
+
+
+
+3-1. 以下のファイルを編集して、保存をします。 
+
+ 
+
+api/cruds/task.py 
+
+※2つの関数を定義します 
+
+―――――――――――――――――――――――――― 
+
+    async def get_task(db: AsyncSession, task_id: int) -> Optional[task_model.Task]: 
+        result: Result = await db.execute( 
+            select(task_model.Task).filter(task_model.Task.id == task_id) 
+        ) 
+
+        task: Optional[Tuple[task_model.Task]] = result.first() 
+        return task[0] if task is not None else None  # 要素が一つであってもtupleで返却されるので１つ目の要素を取り出す 
+
+    async def update_task( 
+        db: AsyncSession, task_create: task_schema.TaskCreate, original: task_model.Task 
+    ) -> task_model.Task: 
+
+        original.title = task_create.title 
+        db.add(original) 
+        await db.commit() 
+        await db.refresh(original) 
+        return original 
+―――――――――――――――――――――――――― 
+
+**コードの説明** 
+
+get_task() では、 .filter() を使って SELECT ~ WHERE として対象を絞り込んでいます。 
+また、Result は select() で指定する要素が１つであってもtupleで返却されてしまいます。 
+その為、tupleではなく値として取り出すためには処理が必要になります。 
+ 
+
+update_task() は create_task() とほとんど見た目が同じです。  
+original としてDBモデルを受け取り、これの中身を更新して返却しています。 
+
+
+上記のCRUDs定義を利用するルーターは、以下のコードを追記します。 
+
+構造はCreateとのものと同等です。 
+
+ 
+
+3-2. 以下のファイルを編集して、保存をします。 
+
+api/routers/task.py 
+
+―――――――――――――――――――――――――― 
+
+    #追記 
+    @router.put("/tasks/{task_id}", response_model=task_schema.TaskCreateResponse) 
+    async def update_task( 
+        task_id: int, task_body: task_schema.TaskCreate, db: AsyncSession = Depends(get_db) 
+    ): 
+        task = await task_crud.get_task(db, task_id=task_id) 
+        if task is None: 
+            raise HTTPException(status_code=404, detail="Task not found")  
+
+        return await task_crud.update_task(db, task_body, original=task) 
+
+―――――――――――――――――――――――――― 
+
+
+**コードの説明** 
+
+HTTPException は任意のHTTPステータスコードを引数に取ることができる Exception クラスです。 
+
+今回は 404 Not Found を指定して raise します。 
+
+ 
+
+### 4. D: Delete 
+
+Delete のインターフェイスも Update とほぼ同等です。まず get_task を実行してから、delete_task を実行します。 
+
+ 
+4-1. 以下のファイルを編集して、保存をします。 
+ 
+
+api/cruds/task.py 
+
+―――――――――――――――――――――――――― 
+
+    #追記 
+    async def delete_task(db: AsyncSession, original: task_model.Task) -> None: 
+        await db.delete(original) 
+        await db.commit() 
+
+―――――――――――――――――――――――――― 
+
+
+上記のCRUDs定義を利用するルーターは、以下のコードを追記します。 
+
+4-2. 以下のファイルを編集して、保存をします。 
+
+
+api/routers/task.py 
+
+―――――――――――――――――――――――――― 
+
+    #追記 
+    @router.delete("/tasks/{task_id}", response_model=None) 
+    async def delete_task(task_id: int, db: AsyncSession = Depends(get_db)): 
+        task = await task_crud.get_task(db, task_id=task_id) 
+        if task is None: 
+            raise HTTPException(status_code=404, detail="Task not found") 
+
+        return await task_crud.delete_task(db, original=task) 
+
+―――――――――――――――――――――――――― 
+
+
+**コードの説明** 
+
+UPDATEと同様の為、説明は省きます。 
+
+
+### 5. Doneリソースの定義 
+
+Taskリソースと同様、Doneリソースも定義していきましょう。 
+
+
+5-1. 以下のファイルを編集して、保存をします。 
+ 
+
+api/cruds/done.py 
+―――――――――――――――――――――――――― 
+
+    async def get_done(db: AsyncSession, task_id: int) -> Optional[task_model.Done]: 
+        result: Result = await db.execute( 
+            select(task_model.Done).filter(task_model.Done.id == task_id) 
+        ) 
+        done: Optional[Tuple[task_model.Done]] = result.first() 
+        return done[0] if done is not None else None  # 要素が一つであってもtupleで返却されるので１つ目の要素を取り出す 
+
+    async def create_done(db: AsyncSession, task_id: int) -> task_model.Done: 
+        done = task_model.Done(id=task_id) 
+        db.add(done) 
+        await db.commit() 
+        await db.refresh(done) 
+        return done 
+
+    async def delete_done(db: AsyncSession, original: task_model.Done) -> None: 
+        await db.delete(original) 
+        await db.commit() 
+    
+―――――――――――――――――――――――――― 
+
+
+上記のCRUDs定義を利用するルーターは、以下のコードを追記します。 
+
+
+5-2. 以下のファイルを編集して、保存をします。 
+
+api/routers/done.py 
+
+―――――――――――――――――――――――――― 
+
+    @router.put("/tasks/{task_id}/done", response_model=done_schema.DoneResponse) 
+    async def mark_task_as_done(task_id: int, db: AsyncSession = Depends(get_db)): 
+        done = await done_crud.get_done(db, task_id=task_id) 
+        if done is not None: 
+            raise HTTPException(status_code=400, detail="Done already exists") 
+        return await done_crud.create_done(db, task_id) 
+
+    @router.delete("/tasks/{task_id}/done", response_model=None) 
+    async def unmark_task_as_done(task_id: int, db: AsyncSession = Depends(get_db)): 
+        done = await done_crud.get_done(db, task_id=task_id) 
+        if done is None: 
+            raise HTTPException(status_code=404, detail="Done not found") 
+
+        return await done_crud.delete_done(db, original=done) 
+
+―――――――――――――――――――――――――― 
+
+
+レスポンススキーマが必要の為、 api/schemas/done.py も同時に作成していきます。 
+
+
+5-3. 以下のファイルを編集して、保存をします。 
+ 
+
+api/schemas/done.py 
+
+―――――――――――――――――――――――――― 
+
+    class DoneResponse(BaseModel): 
+        id: int 
+
+        class Config: 
+            orm_mode = True 
+
+―――――――――――――――――――――――――― 
+
+
+**コードの説明** 
+
+今までの定義と同様の為、説明は省きます。 
+
+後ほど、swaggerのパートで説明しますが、条件に応じて下記の挙動になることに注目してください。 
+
+
+・完了フラグが立っていないとき 
+
+　・PUT: 完了フラグが立つ 
+
+　・DELETE: フラグがないので 404 エラーを返す 
+
+・完了フラグが立っているとき 
+
+　・PUT: 既にフラグが経っているので 400 エラーを返す 
+
+　・DELETE: 完了フラグを消す 
+ 
+ 6. 最終的なディレクトリの構成 
+
+以上で、ToDoアプリに必要なファイルは全て定義できました。 
+
+最終的には以下のようなファイル構成になっているはずです。 
+
+―――――――――――――――――――――――――― 
+
+    api 
+
+    ├── __init__.py 
+    ├── db.py 
+    ├── main.py 
+    ├── migrate_db.py 
+    ├── cruds 
+    │   ├── __init__.py 
+    │   ├── done.py 
+    │   └── task.py 
+    ├── models 
+    │   ├── __init__.py 
+    │   └── task.py 
+    ├── routers 
+    │   ├── __init__.py 
+    │   ├── done.py 
+    │   └── task.py 
+    └── schemas 
+        ├── __init__.py 
+        ├── done.py 
+        └── task.py 
+
+―――――――――――――――――――――――――― 
+
+[talk] 
+
+ここまでFastAPIで、ToDoアプリを作成しましたが、CRUDアプリとして正しい挙動なのか気になります。 
+FastAPIは冒頭で説明したように、SwaggerUIとの連携が強力です。 
+CRUDの動作確認は、そのSwaggerから確認できます。 
+次は実際にToDoアプリのCRUD機能ができているか、Swaggerで、確認しましょう。 
